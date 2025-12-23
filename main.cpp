@@ -31,8 +31,8 @@ struct Board {
     void set(int side, std::string deck);
 };
 struct Limits {
-    int softnodelimit = 0;
-    int hardnodelimit = 0;
+    U64 softnodelimit = 0;
+    U64 hardnodelimit = 0;
     int softtimelimit = 0;
     int hardtimelimit = 0;
     int maxdepth = MAX_PLY;
@@ -46,12 +46,13 @@ struct Searcher {
     Options searchoptions;
     U64 nodecount = (U64)0;
     int pvtable[MAX_PLY + 1][MAX_PLY + 1];
+    int lastmove;
     bool stopsearch;
     std::chrono::time_point<std::chrono::steady_clock> start;
     int alphabeta(int depth, int ply, int alpha, int beta, int play);
     int iterative(int play);
     void reset();
-    void uci();
+    void interface();
 };
 void Board::makemove(int play) {
     totals[color][0] -= count(play);
@@ -226,15 +227,86 @@ void Searcher::reset() {
             pvtable[i][j] = 0;
         }
     }
+    lastmove = 0;
 }
-
+void Searcher::interface() {
+    std::string ucicommand;
+    std::getline(std::cin, ucicommand);
+    std::stringstream tokens(ucicommand);
+    std::string token;
+    tokens >> token;
+    if (token == "quit") {
+        exit(0);
+    }
+    if (token == "newgame") {
+        reset();
+    }
+    if (token == "deck") {
+        std::string cards;
+        tokens >> token;
+        tokens >> cards;
+        if (token == "engine") {
+            decks.set(decks.color, cards);
+        }
+        if (token == "opponent") {
+            decks.set(decks.color ^ 1, cards);
+        }
+    }
+    if (token == "print") {
+        std::cout << "Engine deck: ";
+        for (int i = 0; i < 15; i++) {
+            std::cout << decks.counts[decks.color][i];
+        }
+        std::cout << "\nOpponent deck: ";
+        for (int i = 0; i < 15; i++) {
+            std::cout << decks.counts[decks.color ^ 1][i];
+        }
+        std::cout << "\nLast move: " << lastmove << "\n";
+    }
+    if (token == "move") {
+        tokens >> token;
+        decks.makemove(std::stoi(token));
+        lastmove = std::stoi(token);
+    }
+    if (token == "go") {
+        int time = 0;
+        int inc = 0;
+        Limits infinitesearch = {0, 0, 0, 0, MAX_PLY};
+        searchlimits = infinitesearch;
+        while (tokens >> token) {
+            if (token == "time") {
+                tokens >> token;
+                time = std::stoi(token);
+            }
+            if (token == "inc") {
+                tokens >> token;
+                inc = std::stoi(token);
+            }
+            if (token == "movetime") {
+                tokens >> token;
+                searchlimits.hardtimelimit = std::stoi(token);
+            }
+            if (token == "depth") {
+                tokens >> token;
+                searchlimits.maxdepth = 1 + std::stoi(token);
+            }
+            if (token == "nodes") {
+                tokens >> token;
+                searchlimits.hardnodelimit = std::stoull(token);
+            }
+        }
+        if (time > 0) {
+            searchlimits.softtimelimit = time / 40 + inc / 3;
+            searchlimits.hardtimelimit = time / 10 + inc;
+        }
+        int score = iterative(lastmove);
+    }
+}
 int main() {
     Searcher engin;
     engin.reset();
-    //engin.searchlimits.hardtimelimit = 60000;
-    engin.decks.color = 0;
-    engin.decks.set(0, "101113000020300");
-    engin.decks.set(1, "211020102101010");
-    engin.iterative(0);
+    while (true) {
+        engin.interface();
+    }
     return 0;
 }
