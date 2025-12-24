@@ -241,8 +241,8 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     if (tthit) {
         score = ttentry.score(ply);
         ttmove = ttentry.hashmove();
-        /*int ttnodetype = ttentry.nodetype();
-        if (!isPV && ttdepth >= depth) {
+        int ttnodetype = ttentry.nodetype();
+        if (!isPV && ttdepth == depth) {
             if (ttnodetype == EXPECTED_PV_NODE) {
                 return score;
             }
@@ -252,7 +252,7 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
             if ((ttnodetype & EXPECTED_ALL_NODE) && (score <= alpha)) {
                 return score;
             }
-        }*/
+        }
     }
     int moves[MAX_MOVES];
     int movcount = decks.generatemoves(play, moves);
