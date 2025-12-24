@@ -11,7 +11,7 @@ constexpr int SCORE_MATE = 1900;
 constexpr int SCORE_MAX_EVAL = 1800;
 constexpr int MAX_PLY = 64;
 constexpr int MAX_MOVES = 64;
-constexpr int TT_SIZE = 65536;
+constexpr int TT_SIZE = 131072;
 constexpr int EXPECTED_PV_NODE = 3;
 constexpr int EXPECTED_ALL_NODE = 2;
 constexpr int EXPECTED_CUT_NODE = 1;
@@ -102,6 +102,16 @@ struct Searcher {
 };
 U64 Board::hash(int play) {
     U64 hash = deckhashes[0] ^ deckhashes[1] ^ movehashes[play];
+    if (color) {
+        hash ^= colorhash;
+    }
+    return hash;
+}
+U64 Board::hashafter(int play) {
+    U64 hash = (rank(play) == 15) ? (cardhashes[color][14][1] ^ cardhashes[color][13][1])
+                : (cardhashes[color][rank(play)][counts[color][rank(play)]] 
+                ^ cardhashes[color][rank(play)][counts[color][rank(play)] - count(play)]);
+    hash ^= (deckhashes[0] ^ deckhashes[1] ^ movehashes[play]);
     if (color) {
         hash ^= colorhash;
     }
