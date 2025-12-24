@@ -78,6 +78,12 @@ struct TTentry {
     int score(int ply);
     int nodetype();
 };
+struct History {
+    int mainhist[96];
+    int conthist[96][96];
+    constexpr static int limit = 32768;
+    void update(int prev, int curr, int bonus);
+};
 struct Searcher {
     Board decks;
     Limits searchlimits;
@@ -88,6 +94,7 @@ struct Searcher {
     bool stopsearch;
     std::chrono::time_point<std::chrono::steady_clock> start;
     TTentry TT[TT_SIZE];
+    History Histories;
     int alphabeta(int depth, int ply, int alpha, int beta, int play);
     int iterative(int play);
     void reset();
@@ -222,6 +229,9 @@ int TTentry::score(int ply) {
   return score;
 }
 int TTentry::nodetype() { return (int)(data >> 51) & 3; }
+void History::update(int prev, int curr, int bonus) {
+    mainhist[curr] += (bonus - bonus * mainhist[curr] / limit);
+}
 int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     pvtable[ply][0] = ply + 1;
     if (depth <= 0 || ply >= searchlimits.maxdepth) {
@@ -255,15 +265,30 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
         }
     }
     int moves[MAX_MOVES];
+    int movescore[MAX_MOVES];
     int movcount = decks.generatemoves(play, moves);
     for (int i = 0; i < movcount; i++) {
         if (moves[i] == ttmove) {
-            std::swap(moves[i], moves[0]);
+            movescore[i] = 131072;
+        }
+        else {
+            movescore[i] = Histories.mainhist[moves[i]];
         }
     }
+    /*for (int i = 0; i < movcount; i++) {
+        if (moves[i] == ttmove) {
+            std::swap(moves[i], moves[0]);
+        }
+    }*/
     for (int i = 0; i < movcount; i++) {
         bool nullwindow = (i > 0);
         int e = (movcount == 1);
+        for (int j = i + 1; j < movcount; j++) {
+            if (movescore[j] > movescore[i]) {
+                std::swap(moves[j], moves[i]);
+                std::swap(movescore[j], movescore[i]);
+            }
+        }
         int mov = moves[i];
         if (!stopsearch) {
             if (count(mov) == decks.totals[decks.color][0]) {
@@ -285,8 +310,14 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
             if (score > bestscore) {
                 if (score > alpha) {
                     if (score >= beta) {
-                        if (update && !stopsearch) {
-                            ttentry.update(currhash, depth, ply, score, EXPECTED_CUT_NODE, mov);
+                        if (!stopsearch) {
+                            if (update) {
+                                ttentry.update(currhash, depth, ply, score, EXPECTED_CUT_NODE, mov);
+                            }
+                            Histories.update(play, mov, 2 * depth * depth + 23 * depth - 19);
+                            /*for (int j = 0; j < i; j++) {
+                                Histories.update(play, moves[j], -depth);
+                            }*/
                         }
                         return score;
                     }
@@ -373,6 +404,12 @@ void Searcher::reset() {
     lastmove = 0;
     for (int i = 0; i < TT_SIZE; i++) {
         TT[i].data = (U64)0;
+    }
+    for (int i = 0; i < 96; i++) {
+        for (int j = 0; j < 96; j++) {
+            Histories.conthist[i][j] = 0;
+        }
+        Histories.mainhist[i] = 0;
     }
 }
 void Searcher::interface() {
