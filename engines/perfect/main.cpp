@@ -421,6 +421,7 @@ void Searcher::reset() {
         }
         Histories.mainhist[i] = 0;
     }
+    decks.color = 0;
 }
 void Searcher::interface() {
     std::string ucicommand;
