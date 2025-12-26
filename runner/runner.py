@@ -1,5 +1,6 @@
 import random
 import subprocess
+import threading
 import time
 from typing import NamedTuple
 
@@ -96,7 +97,7 @@ class Runner:
                     elif score > 1800:
                         results[player] = 1 - player
                         
-    def play_pair(self, hidden, deck):
+    def play_pair(self, hidden, decks):
         engineA = subprocess.Popen(
             [self.engine1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, 
             stderr=subprocess.PIPE, text=True, bufsize=1
@@ -107,7 +108,6 @@ class Runner:
         )
         tc1 = [self.basetc1.base, self.basetc1.increment]
         tc2 = [self.basetc2.base, self.basetc2.increment]
-        decks = generate_deck()
         result1 = self.play_game(engineA, engineB, decks[0], decks[1], hidden, tc1, tc2)
         self.reset_time(tc1, tc2)
         result2 = self.play_game(engineB, engineA, decks[0], decks[1], hidden, tc2, tc1)
@@ -121,19 +121,35 @@ class Runner:
     
     def play_match(self, hidden, count):
         for i in range(count):
-            result = self.play_pair(hidden)
+            result = self.play_pair(hidden, generate_deck())
             self.results[1 + result] = self.results[1 + result] + 1
 
-"""results = [0, 0, 0]
-exe1 = ["nohistory", 100, 100]
-exe2 = ["nohistory", 10, 10]
-runner = Runner(exe1, exe2)
-runner.play_match(False, 10)
+results = [0, 0, 0]
+exe1 = ["base", 1000, 100]
+exe2 = ["extend", 1000, 100]
+num_threads = 4
+threads = []
+runners = []
+
+for i in range(num_threads):
+    runner = Runner(exe1, exe2)
+    runners.append(runner)
+    thread = threading.Thread(target=runner.play_match, args=(False, 300))
+    threads.append(thread)
+    thread.start()
+    print("Launched thread " + str(i))
+
+for thread in threads:
+    thread.join()
+
+for runner in runners:
+    for i in range(3):
+        results[i] = results[i] + runner.results[i]
 
 print(exe2)
 print("vs")
 print(exe1)
 print("[W, D, L]:")
-print(runner.results)"""
+print(results)
 
-print(generate_deck())
+#print(generate_deck())
