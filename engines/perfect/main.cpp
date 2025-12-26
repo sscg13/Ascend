@@ -292,7 +292,7 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     }*/
     for (int i = 0; i < movcount; i++) {
         bool nullwindow = (i > 0);
-        //int e = (movcount == 1);
+        int e = (movcount == 1);
         /*for (int j = i + 1; j < movcount; j++) {
             if (movescore[j] > movescore[i]) {
                 std::swap(moves[j], moves[i]);
@@ -313,7 +313,7 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
                         score = -alphabeta(depth - 1, ply + 1, -beta, -alpha, mov);
                     }
                 } else {
-                    score = -alphabeta(depth - 1, ply + 1, -beta, -alpha, mov);
+                    score = -alphabeta(depth - 1 + e, ply + 1, -beta, -alpha, mov);
                 }
                 decks.unmakemove(mov);
             }
