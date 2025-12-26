@@ -93,8 +93,8 @@ struct Searcher {
     int lastmove;
     bool stopsearch;
     std::chrono::time_point<std::chrono::steady_clock> start;
-    TTentry TT[TT_SIZE];
-    History Histories;
+    //TTentry TT[TT_SIZE];
+    //History Histories;
     int alphabeta(int depth, int ply, int alpha, int beta, int play);
     int iterative(int play);
     void reset();
@@ -249,7 +249,7 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     }
     int score = -SCORE_INF;
     int bestscore = -SCORE_INF;
-    bool improvedalpha = false;
+    /*bool improvedalpha = false;
     U64 currhash = decks.hash(play);
     int index = decks.hash(play) % TT_SIZE;
     int ttmove = -1;
@@ -257,8 +257,8 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     bool tthit = (ttentry.key() == (currhash >> 32));
     bool isPV = (beta - alpha) > 1;
     int ttdepth = ttentry.depth();
-    bool update = (depth >= ttdepth || !tthit);
-    if (tthit) {
+    bool update = (depth >= ttdepth || !tthit);*/
+    /*if (tthit) {
         score = ttentry.score(ply);
         ttmove = ttentry.hashmove();
         int ttnodetype = ttentry.nodetype();
@@ -273,18 +273,18 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
                 return score;
             }
         }
-    }
+    }*/
     int moves[MAX_MOVES];
-    int movescore[MAX_MOVES];
+    //int movescore[MAX_MOVES];
     int movcount = decks.generatemoves(play, moves);
-    for (int i = 0; i < movcount; i++) {
+    /*for (int i = 0; i < movcount; i++) {
         if (moves[i] == ttmove) {
             movescore[i] = 131072;
         }
         else {
-            movescore[i] = Histories.mainhist[moves[i]];
+            movescore[i] = 0;
         }
-    }
+    }*/
     /*for (int i = 0; i < movcount; i++) {
         if (moves[i] == ttmove) {
             std::swap(moves[i], moves[0]);
@@ -292,13 +292,13 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     }*/
     for (int i = 0; i < movcount; i++) {
         bool nullwindow = (i > 0);
-        int e = (movcount == 1);
-        for (int j = i + 1; j < movcount; j++) {
+        //int e = (movcount == 1);
+        /*for (int j = i + 1; j < movcount; j++) {
             if (movescore[j] > movescore[i]) {
                 std::swap(moves[j], moves[i]);
                 std::swap(movescore[j], movescore[i]);
             }
-        }
+        }*/
         int mov = moves[i];
         if (!stopsearch) {
             if (count(mov) == decks.totals[decks.color][0]) {
@@ -313,26 +313,26 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
                         score = -alphabeta(depth - 1, ply + 1, -beta, -alpha, mov);
                     }
                 } else {
-                    score = -alphabeta(depth - 1 + e, ply + 1, -beta, -alpha, mov);
+                    score = -alphabeta(depth - 1, ply + 1, -beta, -alpha, mov);
                 }
                 decks.unmakemove(mov);
             }
             if (score > bestscore) {
                 if (score > alpha) {
                     if (score >= beta) {
-                        if (!stopsearch) {
+                        /*if (!stopsearch) {
                             if (update) {
                                 ttentry.update(currhash, depth, ply, score, EXPECTED_CUT_NODE, mov);
                             }
-                            Histories.update(play, mov, 2 * depth * depth + 23 * depth - 19);
-                            /*for (int j = 0; j < i; j++) {
-                                Histories.update(play, moves[j], -depth);
-                            }*/
-                        }
+                            //Histories.update(play, mov, 2 * depth * depth + 23 * depth - 19);
+                            //for (int j = 0; j < i; j++) {
+                            //    Histories.update(play, moves[j], -depth);
+                            //}
+                        }*/
                         return score;
                     }
                     alpha = score;
-                    improvedalpha = true;
+                    //improvedalpha = true;
                 }
                 pvtable[ply][ply + 1] = mov;
                 pvtable[ply][0] = pvtable[ply + 1][0] ? pvtable[ply + 1][0] : ply + 2;
@@ -353,11 +353,11 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
             }
         }
     }
-    int realnodetype = improvedalpha ? EXPECTED_PV_NODE : EXPECTED_ALL_NODE;
+    /*int realnodetype = improvedalpha ? EXPECTED_PV_NODE : EXPECTED_ALL_NODE;
     int savedmove = improvedalpha ? pvtable[ply][ply + 1] : ttmove;
     if ((update || realnodetype == EXPECTED_PV_NODE) && !stopsearch) {
         ttentry.update(currhash, depth, ply, bestscore, realnodetype, savedmove);
-    }
+    }*/
     return bestscore;
 }
 int Searcher::iterative(int play) {
@@ -412,7 +412,7 @@ void Searcher::reset() {
         }
     }
     lastmove = 0;
-    for (int i = 0; i < TT_SIZE; i++) {
+    /*for (int i = 0; i < TT_SIZE; i++) {
         TT[i].data = (U64)0;
     }
     for (int i = 0; i < 96; i++) {
@@ -420,7 +420,7 @@ void Searcher::reset() {
             Histories.conthist[i][j] = 0;
         }
         Histories.mainhist[i] = 0;
-    }
+    }*/
     decks.color = 0;
 }
 void Searcher::interface() {

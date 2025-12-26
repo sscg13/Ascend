@@ -1,6 +1,7 @@
 import random
 import subprocess
 import time
+from typing import NamedTuple
 
 def rank(card):
     if card == 54:
@@ -10,60 +11,7 @@ def rank(card):
     else:
         return (card - 1) // 4
 
-def play_game(engine1, engine2, deck1, deck2, hidden):
-    engine1.stdin.write("newgame\n")
-    engine1.stdin.write("deck engine " + deck1 + "\n")
-    if not hidden:
-        engine1.stdin.write("deck opponent " + deck2 + "\n")
-    engine1.stdin.flush()
-    engine2.stdin.write("newgame\n")
-    if not hidden:
-        engine2.stdin.write("deck engine " + deck1 + "\n")
-        engine2.stdin.write("deck opponent " + deck2 + "\n")
-    else:
-        engine2.stdin.write("deck engine " + deck2 + "\n")
-    engine2.stdin.flush()
-    players = [engine1, engine2]
-    player = 0
-    result = -1
-    mate = False
-    while True:
-        engine = players[player]
-        engine.stdin.write("go nodes 32768\n")
-        engine.stdin.flush()
-        while True:
-            line = engine.stdout.readline().strip()
-            parts = line.split()
-            if parts[0] == "bestmove":
-                move = parts[1]
-                if mate:
-                    return result
-                engine1.stdin.write("move " + move + "\n")
-                engine1.stdin.flush()
-                engine2.stdin.write("move " + move + "\n")
-                engine2.stdin.flush()
-                player = 1 - player
-                break
-            elif parts[0] == "info":
-                parts = line.split()
-                score_index = parts.index("score")
-                score = int(parts[score_index + 1])
-                if score < -1800:
-                    mate = True
-                    result = player
-                elif score > 1800:
-                    mate = True
-                    result = 1 - player
-                    
-def play_pair(engine1, engine2, hidden):
-    engineA = subprocess.Popen(
-        [engine1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, 
-        stderr=subprocess.PIPE, text=True, bufsize=1
-    )
-    engineB = subprocess.Popen(
-        [engine2], stdin=subprocess.PIPE, stdout=subprocess.PIPE, 
-        stderr=subprocess.PIPE, text=True, bufsize=1
-    )
+def generate_deck():
     full_deck = list(range(1, 55))
     random.shuffle(full_deck)
     deck_size = 22
@@ -77,21 +25,115 @@ def play_pair(engine1, engine2, hidden):
         ranks2[rank(card)] = ranks2[rank(card)] + 1
     deck1 = "".join(str(count) for count in ranks1)
     deck2 = "".join(str(count) for count in ranks2)
-    result1 = play_game(engineA, engineB, deck1, deck2, hidden)
-    result2 = play_game(engineB, engineA, deck1, deck2, hidden)
-    result = result1 - result2
-    engineA.stdin.write("quit\n")
-    engineA.stdin.flush()
-    engineB.stdin.write("quit\n")
-    engineB.stdin.flush()
-    print("Game pair result: " + str(result))
-    return result
+    return [deck1, deck2]
 
-results = [0, 0, 0]
-for i in range(400):
-    result = play_pair("C:/Users/ckbao/Downloads/Ascend/engine", "C:/Users/ckbao/Downloads/Ascend/engine", False)
-    results[1 + result] = results[1 + result] + 1
+class TimeConfig(NamedTuple):
+    base: int
+    increment: int    
 
-print(results)
+class Runner:
 
+    def __init__(self, engine1, engine2):
+        self.engine1 = engine1[0]
+        self.engine2 = engine2[0]
+        self.basetc1 = TimeConfig(engine1[1], engine1[2])
+        self.basetc2 = TimeConfig(engine2[1], engine2[2])
+        self.results = [0, 0, 0]
+    
+    def reset_time(self, tc1, tc2):
+        tc1[0] = self.basetc1.base
+        tc1[1] = self.basetc1.increment
+        tc2[0] = self.basetc2.base
+        tc2[1] = self.basetc2.increment
 
+    def play_game(self, engine1, engine2, deck1, deck2, hidden, tc1, tc2):
+        engine1.stdin.write("newgame\n")
+        engine1.stdin.write("deck engine " + deck1 + "\n")
+        if not hidden:
+            engine1.stdin.write("deck opponent " + deck2 + "\n")
+        engine1.stdin.flush()
+        engine2.stdin.write("newgame\n")
+        if not hidden:
+            engine2.stdin.write("deck engine " + deck1 + "\n")
+            engine2.stdin.write("deck opponent " + deck2 + "\n")
+        else:
+            engine2.stdin.write("deck engine " + deck2 + "\n")
+        engine2.stdin.flush()
+        players = [engine1, engine2]
+        times = [tc1, tc2]
+        player = 0
+        results = [-1, -2]
+        while True:
+            if results[0] == results[1]:
+                return results[0]
+            engine = players[player]
+            tc = times[player]
+            engine.stdin.write("go time " + str(tc[0]) + " inc " + str(tc[1]) + "\n")
+            engine.stdin.flush()
+            search_start = time.monotonic()
+            while True:
+                line = engine.stdout.readline().strip()
+                parts = line.split()
+                if parts[0] == "bestmove":
+                    search_end = time.monotonic()
+                    time_taken = int(1000 * (search_end - search_start))
+                    tc[0] = tc[0] - time_taken + tc[1]
+                    if tc[0] < 0:
+                        return player
+                    move = parts[1]
+                    engine1.stdin.write("move " + move + "\n")
+                    engine1.stdin.flush()
+                    engine2.stdin.write("move " + move + "\n")
+                    engine2.stdin.flush()
+                    player = 1 - player
+                    break
+                elif parts[0] == "info":
+                    parts = line.split()
+                    score_index = parts.index("score")
+                    score = int(parts[score_index + 1])
+                    if score < -1800:
+                        results[player] = player
+                    elif score > 1800:
+                        results[player] = 1 - player
+                        
+    def play_pair(self, hidden, deck):
+        engineA = subprocess.Popen(
+            [self.engine1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, text=True, bufsize=1
+        )
+        engineB = subprocess.Popen(
+            [self.engine2], stdin=subprocess.PIPE, stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, text=True, bufsize=1
+        )
+        tc1 = [self.basetc1.base, self.basetc1.increment]
+        tc2 = [self.basetc2.base, self.basetc2.increment]
+        decks = generate_deck()
+        result1 = self.play_game(engineA, engineB, decks[0], decks[1], hidden, tc1, tc2)
+        self.reset_time(tc1, tc2)
+        result2 = self.play_game(engineB, engineA, decks[0], decks[1], hidden, tc2, tc1)
+        result = result1 - result2
+        engineA.stdin.write("quit\n")
+        engineA.stdin.flush()
+        engineB.stdin.write("quit\n")
+        engineB.stdin.flush()
+        print("Game pair result: " + str(result))
+        return result
+    
+    def play_match(self, hidden, count):
+        for i in range(count):
+            result = self.play_pair(hidden)
+            self.results[1 + result] = self.results[1 + result] + 1
+
+"""results = [0, 0, 0]
+exe1 = ["nohistory", 100, 100]
+exe2 = ["nohistory", 10, 10]
+runner = Runner(exe1, exe2)
+runner.play_match(False, 10)
+
+print(exe2)
+print("vs")
+print(exe1)
+print("[W, D, L]:")
+print(runner.results)"""
+
+print(generate_deck())
