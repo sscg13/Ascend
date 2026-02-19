@@ -1,8 +1,10 @@
+import os
 import random
 import subprocess
 import threading
 import time
 from typing import NamedTuple
+from sprt import calculate_sprt
 
 def rank(card):
     if card == 54:
@@ -12,10 +14,9 @@ def rank(card):
     else:
         return (card - 1) // 4
 
-def generate_deck():
+def generate_deck(deck_size):
     full_deck = list(range(1, 55))
     random.shuffle(full_deck)
-    deck_size = 22
     hand1 = full_deck[ : deck_size]
     hand2 = full_deck[deck_size : 2 * deck_size]
     ranks1 = [0] * 15
@@ -89,7 +90,6 @@ class Runner:
                     player = 1 - player
                     break
                 elif parts[0] == "info":
-                    parts = line.split()
                     score_index = parts.index("score")
                     score = int(parts[score_index + 1])
                     if score < -1800:
@@ -116,40 +116,77 @@ class Runner:
         engineA.stdin.flush()
         engineB.stdin.write("quit\n")
         engineB.stdin.flush()
-        print("Game pair result: " + str(result))
+        print("Game pair result: " + str(result) + " (Deck: " + decks[0] + decks[1] + ")")
         return result
     
-    def play_match(self, hidden, count):
-        for i in range(count):
-            result = self.play_pair(hidden, generate_deck())
-            self.results[1 + result] = self.results[1 + result] + 1
+    def play_match(self, hidden, count, bookfile):
+        if bookfile == "":
+            for i in range(count):
+                result = self.play_pair(hidden, generate_deck(22))
+                self.results[1 + result] = self.results[1 + result] + 1
+        else:
+            book_length = os.path.getsize(bookfile) // 32
+            with open(bookfile, 'r') as book:
+                for i in range(count):
+                    rand_line = random.randint(0, book_length - 1)
+                    book.seek(32 * rand_line, os.SEEK_SET)
+                    deck = book.readline().strip()
+                    decks = [deck[0 : 15], deck[15 : 30]]
+                    result = self.play_pair(hidden, decks)
+                    self.results[1 + result] = self.results[1 + result] + 1
+
 
 results = [0, 0, 0]
-exe1 = ["base", 1000, 100]
-exe2 = ["extend", 1000, 100]
+exe1 = ["extend", 1000, 100]
+exe2 = ["ttmove", 1000, 100]
 num_threads = 4
-threads = []
-runners = []
 
-for i in range(num_threads):
-    runner = Runner(exe1, exe2)
-    runners.append(runner)
-    thread = threading.Thread(target=runner.play_match, args=(False, 300))
-    threads.append(thread)
-    thread.start()
-    print("Launched thread " + str(i))
+batch_num = 1
 
-for thread in threads:
-    thread.join()
+print(f"Testing {exe2} vs {exe1}")
 
-for runner in runners:
-    for i in range(3):
-        results[i] = results[i] + runner.results[i]
+while True:
+    print(f"--- Starting Batch {batch_num} ---")
+    
+    runners = []
+    threads = []
+    
+    for thread_idx in range(num_threads):
+        runner = Runner(exe1, exe2)
+        runners.append(runner)
+        
+        book_name = f"newbook{thread_idx}.txt"
+        thread = threading.Thread(target=runner.play_match, args=(False, 8, book_name))
+        threads.append(thread)
+        thread.start()
+        print(f"Launched thread {thread_idx}")
 
-print(exe2)
-print("vs")
-print(exe1)
-print("[W, D, L]:")
-print(results)
+    for thread in threads:
+        thread.join()
+
+    for runner in runners:
+        for j in range(3):
+            results[j] += runner.results[j]
+
+    print("[W, D, L]:", results)
+    
+    llr, status = calculate_sprt(results) 
+    
+    print(f"Current LLR: {llr:.4f} | Status: {status}\n")
+    
+    if status != "LIVE": 
+        print(f"Test concluded! Final Result: {status}")
+        break
+        
+    batch_num += 1
 
 #print(generate_deck())
+
+"""book_length = os.path.getsize("balanced0.txt") // 32
+with open("balanced0.txt", 'r') as book:
+    for i in range(10):
+        rand_line = random.randint(0, book_length - 1)
+        print(rand_line)
+        book.seek(32 * rand_line, os.SEEK_SET)
+        deck = book.readline().strip()
+        print(deck)"""

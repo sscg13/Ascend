@@ -11,7 +11,7 @@ constexpr int SCORE_MATE = 1900;
 constexpr int SCORE_MAX_EVAL = 1800;
 constexpr int MAX_PLY = 64;
 constexpr int MAX_MOVES = 64;
-constexpr int TT_SIZE = 131072;
+constexpr int TT_SIZE = 262144;
 constexpr int EXPECTED_PV_NODE = 3;
 constexpr int EXPECTED_ALL_NODE = 2;
 constexpr int EXPECTED_CUT_NODE = 1;
@@ -93,7 +93,7 @@ struct Searcher {
     int lastmove;
     bool stopsearch;
     std::chrono::time_point<std::chrono::steady_clock> start;
-    //TTentry TT[TT_SIZE];
+    TTentry *TT = new TTentry[TT_SIZE];
     //History Histories;
     int alphabeta(int depth, int ply, int alpha, int beta, int play);
     int iterative(int play);
@@ -220,7 +220,7 @@ void TTentry::update(U64 hash, int depth, int ply, int score, int nodetype, int 
   if (score < -SCORE_MAX_EVAL) {
     score -= ply;
   }
-  data |= ((U64)((unsigned short int)score) << 32);
+  data |= (((U64)(unsigned short int)score) << 32);
   data |= (((U64)hashmove) << 43);
   data |= (((U64)nodetype) << 51);
   data |= (((U64)depth) << 53);
@@ -249,18 +249,19 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     }
     int score = -SCORE_INF;
     int bestscore = -SCORE_INF;
-    /*bool improvedalpha = false;
-    U64 currhash = decks.hash(play);
-    int index = decks.hash(play) % TT_SIZE;
-    int ttmove = -1;
-    TTentry &ttentry = TT[index];
-    bool tthit = (ttentry.key() == (currhash >> 32));
+    bool improvedalpha = false;
     bool isPV = (beta - alpha) > 1;
+    /*U64 currhash = decks.hash(play);
+    int index = currhash % TT_SIZE;
+    int ttmove = 1;
+    TTentry ttentry = TT[index];
+    bool tthit = (ttentry.key() == (currhash >> 32));
     int ttdepth = ttentry.depth();
-    bool update = (depth >= ttdepth || !tthit);*/
-    /*if (tthit) {
-        score = ttentry.score(ply);
+    bool update = (depth >= ttdepth - 4);
+    if (tthit) {
+        //score = ttentry.score(ply);
         ttmove = ttentry.hashmove();
+        
         int ttnodetype = ttentry.nodetype();
         if (!isPV && ttdepth == depth) {
             if (ttnodetype == EXPECTED_PV_NODE) {
@@ -320,19 +321,19 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
             if (score > bestscore) {
                 if (score > alpha) {
                     if (score >= beta) {
-                        /*if (!stopsearch) {
-                            if (update) {
+                        if (!stopsearch) {
+                            /*if (update) {
                                 ttentry.update(currhash, depth, ply, score, EXPECTED_CUT_NODE, mov);
-                            }
+                            }*/
                             //Histories.update(play, mov, 2 * depth * depth + 23 * depth - 19);
                             //for (int j = 0; j < i; j++) {
                             //    Histories.update(play, moves[j], -depth);
                             //}
-                        }*/
+                        }
                         return score;
                     }
                     alpha = score;
-                    //improvedalpha = true;
+                    improvedalpha = true;
                 }
                 pvtable[ply][ply + 1] = mov;
                 pvtable[ply][0] = pvtable[ply + 1][0] ? pvtable[ply + 1][0] : ply + 2;
@@ -355,7 +356,7 @@ int Searcher::alphabeta(int depth, int ply, int alpha, int beta, int play) {
     }
     /*int realnodetype = improvedalpha ? EXPECTED_PV_NODE : EXPECTED_ALL_NODE;
     int savedmove = improvedalpha ? pvtable[ply][ply + 1] : ttmove;
-    if ((update || realnodetype == EXPECTED_PV_NODE) && !stopsearch) {
+    if (update && !stopsearch) {
         ttentry.update(currhash, depth, ply, bestscore, realnodetype, savedmove);
     }*/
     return bestscore;
@@ -412,9 +413,10 @@ void Searcher::reset() {
         }
     }
     lastmove = 0;
-    /*for (int i = 0; i < TT_SIZE; i++) {
+    for (int i = 0; i < TT_SIZE; i++) {
         TT[i].data = (U64)0;
     }
+    /*
     for (int i = 0; i < 96; i++) {
         for (int j = 0; j < 96; j++) {
             Histories.conthist[i][j] = 0;
