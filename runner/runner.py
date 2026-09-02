@@ -1,10 +1,14 @@
+import argparse
 import os
 import random
 import subprocess
+import tempfile
 import threading
 import time
 from typing import NamedTuple
 from sprt import calculate_sprt
+
+POSITION_LENGTH = 30
 
 def rank(card):
     if card == 54:
@@ -32,6 +36,79 @@ def generate_deck(deck_size):
 class TimeConfig(NamedTuple):
     base: int
     increment: int    
+
+class BookEntry(NamedTuple):
+    position: str
+    decisive: int
+    total: int
+
+def parse_book_line(line, line_number=None):
+    """Parse a legacy position line or a position with persisted statistics."""
+    content = line.strip()
+    if not content:
+        raise ValueError("empty book line")
+
+    if "|" not in content:
+        position = content
+        decisive = 0
+        total = 0
+    else:
+        position_part, stats_part = content.split("|", 1)
+        position = position_part.strip()
+        try:
+            decisive_part, total_part = stats_part.split("/", 1)
+            decisive = int(decisive_part.strip())
+            total = int(total_part.strip())
+        except (ValueError, TypeError) as error:
+            raise ValueError(f"invalid book statistics: {content!r}") from error
+
+    if len(position) != POSITION_LENGTH:
+        raise ValueError(
+            f"expected a {POSITION_LENGTH}-character position, got {len(position)}"
+        )
+    if not position.isdigit():
+        raise ValueError(f"position must contain only digits: {position!r}")
+    if decisive < 0 or total < 0 or decisive > total:
+        raise ValueError(f"invalid book statistics: {decisive} / {total}")
+
+    return BookEntry(position, decisive, total)
+
+def load_book(bookfile):
+    entries = []
+    with open(bookfile, "r", encoding="ascii", newline="") as book:
+        for line_number, line in enumerate(book, 1):
+            try:
+                entries.append(parse_book_line(line, line_number))
+            except ValueError as error:
+                raise ValueError(f"{bookfile}:{line_number}: {error}") from error
+    if not entries:
+        raise ValueError(f"book is empty: {bookfile}")
+    return entries
+
+def save_book(bookfile, entries):
+    """Atomically persist positions and their decisive/total pair counts."""
+    book_dir = os.path.dirname(os.path.abspath(bookfile))
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="ascii", newline="\n", dir=book_dir,
+            prefix=".book-", suffix=".tmp", delete=False
+        ) as temp_book:
+            temp_name = temp_book.name
+            for entry in entries:
+                temp_book.write(
+                    f"{entry.position} | {entry.decisive} / {entry.total}\n"
+                )
+            temp_book.flush()
+            os.fsync(temp_book.fileno())
+        os.replace(temp_name, bookfile)
+        temp_name = None
+    finally:
+        if temp_name is not None:
+            try:
+                os.remove(temp_name)
+            except FileNotFoundError:
+                pass
 
 class Runner:
 
@@ -125,60 +202,86 @@ class Runner:
                 result = self.play_pair(hidden, generate_deck(22))
                 self.results[1 + result] = self.results[1 + result] + 1
         else:
-            book_length = os.path.getsize(bookfile) // 32
-            with open(bookfile, 'r') as book:
-                for i in range(count):
-                    rand_line = random.randint(0, book_length - 1)
-                    book.seek(32 * rand_line, os.SEEK_SET)
-                    deck = book.readline().strip()
-                    decks = [deck[0 : 15], deck[15 : 30]]
-                    result = self.play_pair(hidden, decks)
-                    self.results[1 + result] = self.results[1 + result] + 1
+            entries = load_book(bookfile)
+            for i in range(count):
+                entry_index = random.randrange(len(entries))
+                entry = entries[entry_index]
+                decks = [entry.position[0:15], entry.position[15:30]]
+                result = self.play_pair(hidden, decks)
+                self.results[1 + result] = self.results[1 + result] + 1
+                entries[entry_index] = BookEntry(
+                    entry.position,
+                    entry.decisive + (1 if result != 0 else 0),
+                    entry.total + 1,
+                )
+                save_book(bookfile, entries)
 
 
-results = [0, 0, 0]
-exe1 = ["extend", 1000, 100]
-exe2 = ["ttmove", 1000, 100]
-num_threads = 4
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run an SPRT match between two engines using local book files."
+    )
+    parser.add_argument(
+        "engine1",
+        nargs="?",
+        default="extend",
+        help="path to the first engine executable (default: extend)",
+    )
+    parser.add_argument(
+        "engine2",
+        nargs="?",
+        default="ttmove",
+        help="path to the second engine executable (default: ttmove)",
+    )
+    args = parser.parse_args()
 
-batch_num = 1
+    results = [0, 0, 0]
+    exe1 = [args.engine1, 1000, 100]
+    exe2 = [args.engine2, 1000, 100]
+    num_threads = 4
 
-print(f"Testing {exe2} vs {exe1}")
+    batch_num = 1
 
-while True:
-    print(f"--- Starting Batch {batch_num} ---")
-    
-    runners = []
-    threads = []
-    
-    for thread_idx in range(num_threads):
-        runner = Runner(exe1, exe2)
-        runners.append(runner)
+    print(f"Testing {exe2} vs {exe1}")
+
+    while True:
+        print(f"--- Starting Batch {batch_num} ---")
         
-        book_name = f"newbook{thread_idx}.txt"
-        thread = threading.Thread(target=runner.play_match, args=(False, 8, book_name))
-        threads.append(thread)
-        thread.start()
-        print(f"Launched thread {thread_idx}")
-
-    for thread in threads:
-        thread.join()
-
-    for runner in runners:
-        for j in range(3):
-            results[j] += runner.results[j]
-
-    print("[W, D, L]:", results)
-    
-    llr, status = calculate_sprt(results) 
-    
-    print(f"Current LLR: {llr:.4f} | Status: {status}\n")
-    
-    if status != "LIVE": 
-        print(f"Test concluded! Final Result: {status}")
-        break
+        runners = []
+        threads = []
         
-    batch_num += 1
+        for thread_idx in range(num_threads):
+            runner = Runner(exe1, exe2)
+            runners.append(runner)
+            
+            book_name = f"newbook{thread_idx}.txt"
+            thread = threading.Thread(target=runner.play_match, args=(False, 8, book_name))
+            threads.append(thread)
+            thread.start()
+            print(f"Launched thread {thread_idx}")
+
+        for thread in threads:
+            thread.join()
+
+        for runner in runners:
+            for j in range(3):
+                results[j] += runner.results[j]
+
+        print("[W, D, L]:", results)
+        
+        llr, status = calculate_sprt(results) 
+        
+        print(f"Current LLR: {llr:.4f} | Status: {status}\n")
+        
+        if status != "LIVE": 
+            print(f"Test concluded! Final Result: {status}")
+            break
+        
+        batch_num += 1
+
+
+if __name__ == "__main__":
+    main()
 
 #print(generate_deck())
 
